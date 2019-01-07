@@ -10,6 +10,8 @@ System.register(['lodash'], function (_export, _context) {
       throw new TypeError("Cannot call a class as a function");
     }
   }
+
+  
   function getMetrics(ci_type, all_metrics) {
     if (ci_type && ci_type != "select ci type"){
       return all_metrics[ci_type];
@@ -211,9 +213,45 @@ function handleAdHocFilters(adhocFilters, prefix) {
             }
 
             //========= handle regular expression in metrics names ========
-            var all_metrics = sessionStorage.getItem("all_metrics");
-            all_metrics = JSON.parse(all_metrics);
-            var body = [];
+            console.log("=========about to call get_all_metrics");
+            var all_metrics;
+            var _this = this;
+            return new Promise(function(resolve, reject) {
+              
+              var all_metrics_last_update_str = sessionStorage.getItem("all_metrics_last_update_str");
+              var all_metrics_last_update;
+              var all_metrics = sessionStorage.getItem("all_metrics");
+              if (all_metrics_last_update_str){
+                all_metrics_last_update = new Date(parseInt(all_metrics_last_update_str, 10));
+              }
+              all_metrics = JSON.parse(all_metrics);
+
+              //TODO
+               if (all_metrics && all_metrics_last_update && (new Date().getTime() - all_metrics_last_update.getTime()  < 1000*60*60)){
+                  console.log("[query]taking metrics from cache");
+                  return resolve(all_metrics);
+
+                } else {
+                  console.log("[query]taking metrics NOT from cache");
+                  
+                  return _this.doRequest({
+                      url: _this.url + '/api/sn_itmon/monitoring/search',
+                      data: "",
+                      method: 'POST'
+                      }).then(function (result) {
+                        if (result && result.data){
+                            sessionStorage.setItem("all_metrics_last_update_str", "" + new Date().getTime());
+                            sessionStorage.setItem("all_metrics", JSON.stringify(result.data.result));
+                            //console.log("[get_all_metrics]result returned: "+JSON.stringify(result.data.result));
+                            resolve(JSON.stringify(result.data.result));
+                        }              
+                      });
+                }
+
+
+            }).then(function(all_metrics) { // (**)
+
+              var body = [];
             _.each(query.targets, function(target) {
               if (target.type == "timeserie" && target.target.includes(".*")){
                   var ci_metrics = all_metrics[target.ci_type];
@@ -234,11 +272,10 @@ function handleAdHocFilters(adhocFilters, prefix) {
             var _start = JSON.stringify(query.range.from).substring(1,20);
             var _end = JSON.stringify(query.range.to).substring(1,20);
             var _length = body.targets;
-            var _this = this;
             var tsResult = {data : []};
 
+
         return new Promise(function (resolve, reject) {
-            
             var numberOfTargets = body.length;
             var num_of_results = 0;
             //======== loop over all metrics(targets) =========
@@ -251,8 +288,9 @@ function handleAdHocFilters(adhocFilters, prefix) {
                   return;
                 }
                 
+
                 //======== resource case  =========
-                console.log("[query] _target "+_target);
+                console.log("[query] _target is "+_target);
                 if (_target.includes("/")){
                   console.log("[query] handling resource case "+_target);
                   
@@ -327,6 +365,9 @@ function handleAdHocFilters(adhocFilters, prefix) {
             }); //end _.each
       });
 
+            });
+            
+ 
           }
         }, {
           key: 'testDatasource',
@@ -351,48 +392,18 @@ function handleAdHocFilters(adhocFilters, prefix) {
         }, {
           key: 'metricFindQuery',
           value: function metricFindQuery(ci_type) {
-            
+            console.log("[metricFindQuery] start")
             var interpolated = {
               target: this.templateSrv.replace(ci_type, null, 'regex')
             };
 
-            //take from cache
-            var all_metrics_last_update_str = sessionStorage.getItem("all_metrics_last_update_str");
-            var all_metrics_last_update;
-            var all_metrics = sessionStorage.getItem("all_metrics");
-            if (all_metrics_last_update_str){
-              all_metrics_last_update = new Date(parseInt(all_metrics_last_update_str, 10));
-            }
-            if (all_metrics){
-              all_metrics = JSON.parse(all_metrics);
-            }
-            
-            if (all_metrics && all_metrics_last_update && (new Date().getTime() - all_metrics_last_update.getTime()  < 1000*60*60)){
-              console.log("taking metrics from cache");
-              var metrics = getMetrics(ci_type, all_metrics);
+            return this.get_all_metrics().then(function(result) {
+              var metrics = getMetrics(ci_type, result);
+              //console.log("[metricFindQuery] metrics: "+metrics);
               return mapToTextValue(metrics);
-
-            } else {
-              console.log("taking metrics NOT from cache");
-              console.log("ci_type is "+ci_type );
-
-              return this.doRequest({
-                  url: this.url + '/api/sn_itmon/monitoring/search',
-                  data: "",
-                  method: 'POST'
-                  }).then(function (result) {
-                    if (result && result.data){
-                        var metrics = getMetrics(ci_type, result.data.result);
-                        sessionStorage.setItem("all_metrics_last_update_str", "" + new Date().getTime());
-                        sessionStorage.setItem("all_metrics", JSON.stringify(result.data.result));
-                        return mapToTextValue(metrics);
-                    }
-
-                    
-
-                    
-                  });
-            }
+            });
+            
+            
           }
         }, {
           key: 'doRequest',
@@ -433,6 +444,7 @@ function handleAdHocFilters(adhocFilters, prefix) {
         }, {
           key: 'getTagKeys',
           value: function getTagKeys(options) {
+            console.log("[getTagKeys] start");
             var _this2 = this;
 
             console.log("calling getTagKeys");
@@ -446,6 +458,47 @@ function handleAdHocFilters(adhocFilters, prefix) {
               });
             });
           }
+       }, {
+          key: 'get_all_metrics',
+          value: function get_all_metrics() {
+            console.log("[get_all_metrics] starting get_all_metrics");
+            var _this = this;
+    return new Promise(function (resolve, reject) {
+
+  
+            var all_metrics_last_update_str = sessionStorage.getItem("all_metrics_last_update_str");
+            var all_metrics_last_update;
+            var all_metrics = sessionStorage.getItem("all_metrics");
+            if (all_metrics_last_update_str){
+              all_metrics_last_update = new Date(parseInt(all_metrics_last_update_str, 10));
+            }
+            if (all_metrics){
+              all_metrics = JSON.parse(all_metrics);
+            }
+            //TODO
+             if (all_metrics && all_metrics_last_update && (new Date().getTime() - all_metrics_last_update.getTime()  < 1000*60*60)){
+                console.log("[get_all_metrics]taking metrics from cache");
+                return resolve(all_metrics);
+
+              } else {
+                console.log("[get_all_metrics]taking metrics NOT from cache");
+                
+                return _this.doRequest({
+                    url: _this.url + '/api/sn_itmon/monitoring/search',
+                    data: "",
+                    method: 'POST'
+                    }).then(function (result) {
+                      if (result && result.data){
+                          sessionStorage.setItem("all_metrics_last_update_str", "" + new Date().getTime());
+                          sessionStorage.setItem("all_metrics", JSON.stringify(result.data.result));
+                          //console.log("[get_all_metrics]result returned: "+JSON.stringify(result.data.result));
+                          resolve(JSON.stringify(result.data.result));
+                      }              
+                    });
+              }
+          
+        });
+  }
        
         }, {
           key: 'getTagValues',
